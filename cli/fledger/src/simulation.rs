@@ -26,6 +26,8 @@ pub enum SimulationSubcommand {
         #[arg(long)]
         recv_msg: Option<String>,
     },
+
+    DhtJoinRealm {},
 }
 
 pub struct SimulationHandler {}
@@ -36,6 +38,7 @@ impl SimulationHandler {
             SimulationSubcommand::Chat { send_msg, recv_msg } => {
                 Self::run_chat(f, command, send_msg, recv_msg).await
             }
+            SimulationSubcommand::DhtJoinRealm {} => Self::run_dht_join_realm(f).await,
         }
     }
 
@@ -93,6 +96,44 @@ impl SimulationHandler {
                 }
             }
         }
+    }
+
+    async fn run_dht_join_realm(mut f: Fledger) -> anyhow::Result<()> {
+        f.loop_node(crate::FledgerState::DHTAvailable).await?;
+        log::info!("SIMULATION END");
+
+        f.loop_node(crate::FledgerState::Forever).await?;
+        return Ok(());
+
+        // let router = f.node.dht_router.unwrap();
+        // let ds = f.node.dht_storage.unwrap();
+        // let rv = RealmView::new_first(ds.clone()).await?;
+
+        // To send requests for random floID
+        // let realm_id = ds.get_realm_ids().await?.first().unwrap();
+        // let res = ds.get_flo(&GlobalID::new(realm_id, FloID::rnd())).await;
+        //
+        // Alternative to get realm ID
+        // rv.realm.realm_id();
+
+        // Send a Flo tag blob
+        // if let Some(ref content) = put_content {
+        //     log::info!("Storing content in DHT {}.", content);
+        //     rv.create_tag(content, None, flcrypto::access::Condition::Pass, &[]);
+        //     ds.propagate().await?;
+        // }
+
+        // rv.update_tags();
+        // rv.tags
+        //     .unwrap()
+        //     .storage
+        //     .iter()
+        //     .any(|tag| tag.1.cache().0.values().get(name).is_some());
+        // {
+        //     log::info!("SIMULATION TRIGGER");
+        //     f.loop_node(crate::FledgerState::Forever).await?;
+        //     return Ok(());
+        // }
     }
 
     fn log_new_messages(f: &Fledger, acked_msg_ids: &mut Vec<U256>) {
