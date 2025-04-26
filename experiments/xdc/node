@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if test "$2" = "logs"; then
+        echo "Monitoring log file [$3] on node [$1]..."
+        echo "---"
+        ssh "$1" sudo tail -F "/var/log/$3"
+        ssh "$1"
+fi
+
+if test "$2" = "nload"; then
+        echo "Installing and running nload on node [$1]..."
+        echo "---"
+        ssh "$1" sudo 'bash -c "apt update -y && apt install nload"'
+
+        echo sudo nload > /tmp/.profile
+        scp ~/nload-profile "$1:.profile"
+        bash -c "sleep 2 && scp ~/nonload-profile $1:.profile" &
+        ssh "$1"
+fi

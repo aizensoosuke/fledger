@@ -50,8 +50,6 @@ impl SimulationHandler {
     ) -> anyhow::Result<()> {
         f.loop_node(crate::FledgerState::Connected(1)).await?;
 
-        let node_name = f.args.name.clone().unwrap_or("unknown".into());
-
         if let Some(ref msg) = recv_msg {
             log::info!("Waiting for chat message {}.", msg);
         }
@@ -62,9 +60,6 @@ impl SimulationHandler {
         }
 
         let mut acked_msg_ids: Vec<U256> = Vec::new();
-
-        // necessary to grab the variable for lifetime purposes.
-        let _influx = Metrics::setup(node_name);
 
         loop {
             wait_ms(1000).await;
@@ -90,7 +85,7 @@ impl SimulationHandler {
                     .iter()
                     .any(|ev| ev.msg.eq(msg))
                 {
-                    log::info!("RECV_CHAT_MSG TRIGGERED");
+                    log::info!("SIMULATION END");
                     f.loop_node(crate::FledgerState::Forever).await?;
                     return Ok(());
                 }
@@ -102,8 +97,40 @@ impl SimulationHandler {
         f.loop_node(crate::FledgerState::DHTAvailable).await?;
         log::info!("SIMULATION END");
 
+        absolute_counter!("fledger_realms_total", 1);
+
         f.loop_node(crate::FledgerState::Forever).await?;
         return Ok(());
+
+        // let router = f.node.dht_router.unwrap();
+        // let ds = f.node.dht_storage.unwrap();
+        // let rv = RealmView::new_first(ds.clone()).await?;
+
+        // To send requests for random floID
+        // let realm_id = ds.get_realm_ids().await?.first().unwrap();
+        // let res = ds.get_flo(&GlobalID::new(realm_id, FloID::rnd())).await;
+        //
+        // Alternative to get realm ID
+        // rv.realm.realm_id();
+
+        // Send a Flo tag blob
+        // if let Some(ref content) = put_content {
+        //     log::info!("Storing content in DHT {}.", content);
+        //     rv.create_tag(content, None, flcrypto::access::Condition::Pass, &[]);
+        //     ds.propagate().await?;
+        // }
+
+        // rv.update_tags();
+        // rv.tags
+        //     .unwrap()
+        //     .storage
+        //     .iter()
+        //     .any(|tag| tag.1.cache().0.values().get(name).is_some());
+        // {
+        //     log::info!("SIMULATION TRIGGER");
+        //     f.loop_node(crate::FledgerState::Forever).await?;
+        //     return Ok(());
+        // }
     }
 
     fn log_new_messages(f: &Fledger, acked_msg_ids: &mut Vec<U256>) {

@@ -3,6 +3,7 @@ use flarch::{
     nodeids::U256,
     platform_async_trait,
 };
+use metrics::{absolute_counter, counter};
 
 use super::messages::{RouterIn, RouterInternal, RouterOut};
 use crate::{
