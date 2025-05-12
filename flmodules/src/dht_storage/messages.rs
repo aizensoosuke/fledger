@@ -298,7 +298,7 @@ impl Messages {
                     )
                     .collect()
             }
-            MessageNeighbour::RequestFloMetas(realm_id) => self
+            MessageNeighbour::RequestFloMetas(realm_id) => self // TODO: EVIL BLOCK
                 .realms
                 .get(&realm_id)
                 .map(|realm| realm.get_flo_metas())
@@ -312,7 +312,7 @@ impl Messages {
                 .map_or(vec![], |needed| {
                     vec![MessageNeighbour::RequestFlos(realm_id, needed)]
                 }),
-            MessageNeighbour::RequestFlos(realm_id, flo_ids) => self
+            MessageNeighbour::RequestFlos(realm_id, flo_ids) => self // TODO: EVIL BLOCK
                 .realms
                 .get(&realm_id)
                 .map(|realm| {
