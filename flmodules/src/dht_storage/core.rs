@@ -225,6 +225,12 @@ impl RealmStorage {
             updated = true;
         }
 
+        log::warn!(
+            "realm storage : current({}) / max({})",
+            self.size,
+            self.realm_config.max_space
+        );
+
         while self.size as u64 > self.realm_config.max_space {
             self.remove_furthest(&flo_id);
         }

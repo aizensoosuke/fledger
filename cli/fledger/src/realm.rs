@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use flcrypto::{access::Condition, signer::SignerTrait};
+use flcrypto::access::Condition;
 use flmodules::{
     dht_storage::{core::RealmConfig, realm_view::RealmViewBuilder},
     flo::realm::Realm,
@@ -54,19 +54,16 @@ impl RealmHandler {
             config.max_space,
             config.max_flo_size
         );
-        let signer = f.node.crypto_storage.get_signer();
-        let cond = Condition::Verifier(signer.verifier());
-        let signers = vec![signer];
-        RealmViewBuilder::new(f.ds.clone(), name, cond.clone(), signers.clone())
+        RealmViewBuilder::new(f.ds.clone(), name, Condition::Pass, vec![])
             .config(config)
             .root_http(
                 "danu".to_string(),
                 INDEX_HTML.to_string(),
                 None,
-                cond.clone(),
-                signers.clone(),
+                Condition::Pass,
+                vec![],
             )
-            .root_tag("danu".to_string(), None, cond.clone(), signers)
+            .root_tag("danu".to_string(), None, Condition::Pass, vec![])
             .build()
             .await?;
 
