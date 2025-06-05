@@ -1,4 +1,4 @@
-use std::{any::type_name, time::Duration};
+use std::{any::type_name, collections::HashMap, time::Duration, vec};
 
 use crate::Fledger;
 use anyhow::Error;
@@ -6,9 +6,9 @@ use clap::{arg, Args, Subcommand};
 use flarch::{nodeids::U256, tasks::wait_ms};
 use flcrypto::tofrombytes::ToFromBytes;
 use flmodules::{
-    dht_storage::realm_view::RealmView,
+    dht_storage::{core::FloConfig, realm_view::RealmView},
     flo::{
-        blob::{BlobAccess, BlobPage, BlobTag},
+        blob::{Blob, BlobAccess, BlobID, BlobPage, BlobTag},
         flo::FloWrapper,
         realm::GlobalID,
     },
@@ -335,10 +335,11 @@ impl SimulationHandler {
 
         log::info!("[Create filler pages]");
         for i in 0..filler_amount {
+            let page_content = String::from_utf8(vec![b'-'; page_size as usize])?;
             let flo_page = rv
                 .create_http(
                     &format!("simulation-filler-{}", i.to_string()),
-                    String::from_utf8(vec![b'-'; page_size as usize])?,
+                    page_content.clone(),
                     None,
                     flcrypto::access::Condition::Pass,
                     &[],
@@ -346,17 +347,13 @@ impl SimulationHandler {
                 .await
                 .unwrap();
 
-            let page_content =
-                String::from_utf8(flo_page.datas().iter().next().unwrap().1.clone().to_vec())
-                    .unwrap();
-
             log::info!(
                 "page {}/{}/{} | {} | {} ({}B -> {}B)",
                 flo_page.flo_id(),
                 flo_page.realm_id(),
                 flo_page.version(),
                 flo_page.values().iter().next().unwrap().1,
-                page_content.chars().take(50).collect::<String>(),
+                page_content.clone().chars().take(50).collect::<String>(),
                 page_content.size(),
                 flo_page.size(),
             );
@@ -365,27 +362,50 @@ impl SimulationHandler {
         log::info!("[Waiting for fillers to settle]");
         log::info!("{} ms", pages_propagation_delay);
 
-        let settling_seconds = pages_propagation_delay / 1000;
-        for _ in 0..settling_seconds {
-            ds.propagate()?;
-            ds.sync()?;
-            ds.broker.settle(Vec::new()).await?;
-            wait_ms(1000).await;
-        }
-
-        wait_ms((pages_propagation_delay % 1000) as u64).await;
+        ds.broker.settle(Vec::new()).await?;
+        ds.sync()?;
+        wait_ms(pages_propagation_delay as u64).await;
 
         log::info!("[Sending simulation flo page]");
-        let flo_page = rv
-            .create_http(
-                "simulation-page",
-                String::from_utf8(vec![b'o'; page_size as usize])?,
-                None,
-                flcrypto::access::Condition::Pass,
-                &[],
-            )
-            .await
-            .unwrap();
+        let page_content = String::from_utf8(vec![b'o'; page_size as usize])?;
+        let page_links: HashMap<String, Vec<BlobID>> = HashMap::new();
+        let page_path = "simulation-page";
+        let page_id = U256::zero();
+
+        let flo_page = FloWrapper::from_type_config(
+            rv.realm.realm_id(),
+            flcrypto::access::Condition::Pass,
+            FloConfig {
+                cuckoo: flmodules::dht_storage::core::Cuckoo::None,
+                force_id: Some(page_id),
+            },
+            BlobPage(Blob::make(
+                "re.fledg.page".into(),
+                page_links,
+                [("path".to_string(), page_path.into())].into(),
+                [("index.html".to_string(), page_content.into())].into(),
+            )),
+            &[],
+        )?;
+        // let flo_page = FloBlobPage::new_cuckoo(
+        //     rv.realm.realm_id(),
+        //     flcrypto::access::Condition::Pass,
+        //     &format!("simulation-filler-{}", i.to_string()),
+        //     Bytes::from(page_content),
+        //     None,
+        //     flmodules::dht_storage::core::Cuckoo::None.clone(),
+        //     &[],
+        // )?;
+        // let flo_page = rv
+        //     .create_http(
+        //         "simulation-page",
+        //         String::from_utf8(vec![b'o'; page_size as usize])?,
+        //         None,
+        //         flcrypto::access::Condition::Pass,
+        //         &[],
+        //     )
+        //     .await
+        //     .unwrap();
 
         let page_content =
             String::from_utf8(flo_page.datas().iter().next().unwrap().1.clone().to_vec()).unwrap();
@@ -405,10 +425,8 @@ impl SimulationHandler {
         rv.set_realm_service("simulation-page", flo_page.blob_id(), &[&signer])
             .await?;
 
-        for _ in 0..120 {
-            ds.store_flo(flo_page.flo().clone())?;
-            wait_ms(1000).await;
-        }
+        ds.store_flo(flo_page.flo().clone())?;
+        wait_ms(1000).await;
 
         ds.sync()?;
 
@@ -548,22 +566,43 @@ impl SimulationHandler {
                 "fledger_connected_total",
                 f.node.dht_router.as_ref().unwrap().stats.borrow().active as u64
             );
-            rv.update_all().await?;
 
-            let pages = ds.get_flos().await.unwrap().clone();
+            ds.sync()?;
+            let _ = rv
+                .update_all()
+                .await
+                .inspect_err(|e| log::error!("error when doing rv.update_all(): {e}"));
+
+            let pages = ds
+                .get_flos()
+                .await
+                .unwrap_or_else(|e| {
+                    log::error!("failed to get flos {e}");
+                    vec![]
+                })
+                .clone();
             let pages = pages
                 .iter()
                 .filter(|flo| flo.flo_type() == type_name::<BlobPage>())
                 .map(|flo| BlobPage::from_rmp_bytes(&flo.flo_type(), &flo.data()).unwrap());
 
-            let mut simulation_page_stored_this_iteration = false;
-            pages.clone().for_each(|page| {
-                let page_name = page.0.values().iter().next().unwrap().1;
-                log::info!("page found {}", page_name);
-                if page_name == "simulation-page" {
-                    simulation_page_stored_this_iteration = true;
-                }
-            });
+            let page_names = pages
+                .clone()
+                .map(|page| page.0.values().iter().next().unwrap().1.clone());
+
+            let simulation_page_stored_this_iteration = page_names
+                .clone()
+                .find(|name| name == "simulation-page")
+                .is_some();
+
+            let page_list = page_names
+                .clone()
+                .map(|name| {
+                    return name.replace("simulation-filler-", "");
+                })
+                .collect::<Vec<String>>()
+                .join(", ");
+            log::info!("pages stored: {page_list}");
 
             if simulation_page_stored_this_iteration {
                 absolute_counter!("fledger_simulation_page_stored", 1);
@@ -578,6 +617,7 @@ impl SimulationHandler {
 
             let page_id_opt = rv.realm.cache().get_services().get("simulation-page");
             if let Some(page_id) = page_id_opt {
+                log::info!("trying to fetch page with id [{}]", page_id);
                 let page_global_id = GlobalID::new(rv.realm.realm_id(), page_id.clone());
                 let page_flo_wrapper_result: Result<FloWrapper<BlobPage>, Error> =
                     ds.get_flo(&page_global_id).await;
