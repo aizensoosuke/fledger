@@ -314,6 +314,20 @@ impl Messages {
                     )
                     .collect()
             }
+            MessageNeighbour::RequestFloMetas(realm_id) => {
+                if unsafe { !EVIL_NO_FORWARD } {
+                    increment_counter!("fledger_forwarded_flo_meta_requests_total");
+                    self.realms
+                        .get(&realm_id)
+                        .map(|realm| realm.get_flo_metas())
+                        .map_or(vec![], |fm| {
+                            vec![MessageNeighbour::AvailableFlos(realm_id, fm)]
+                        })
+                } else {
+                    increment_counter!("fledger_blocked_flo_meta_requests_total");
+                    vec![]
+                }
+            }
             MessageNeighbour::AvailableFlos(realm_id, flo_metas) => {
                 absolute_counter!(
                     "fledger_flos_metas_received_from_neighbour",
@@ -330,20 +344,6 @@ impl Messages {
                         );
                         vec![MessageNeighbour::RequestFlos(realm_id, needed)]
                     })
-            }
-            MessageNeighbour::RequestFloMetas(realm_id) => {
-                if unsafe { !EVIL_NO_FORWARD } {
-                    increment_counter!("fledger_forwarded_flo_meta_requests_total");
-                    self.realms
-                        .get(&realm_id)
-                        .map(|realm| realm.get_flo_metas())
-                        .map_or(vec![], |fm| {
-                            vec![MessageNeighbour::AvailableFlos(realm_id, fm)]
-                        })
-                } else {
-                    increment_counter!("fledger_blocked_flo_meta_requests_total");
-                    vec![]
-                }
             }
             MessageNeighbour::RequestFlos(realm_id, flo_ids) => {
                 absolute_counter!(
